@@ -83,6 +83,8 @@ autoinstrumentation:
 
 agent:
   enabled: true
+   # "daemonset", "deployment" (default), "statefulset"
+  mode: daemonset
   tolerations:
     - operator: Exists
   resources: {}
