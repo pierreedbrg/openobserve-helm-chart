@@ -13,7 +13,7 @@ spec:
   {{- else }}
   replicas: {{ .Values.gateway.replicas | default 1 }}
   {{- end }}
-  mode: statefulset
+  mode: {{ .Values.gateway.mode }}
   {{- if .Values.gateway.targetAllocator.enabled }}
   targetAllocator:
     enabled: true

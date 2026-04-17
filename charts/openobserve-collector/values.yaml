@@ -340,6 +340,7 @@ agent:
 
 gateway:
   enabled: true
+  mode: statefulset
   # Number of replicas when autoscaler is not used
   replicas: 1
   targetAllocator:
