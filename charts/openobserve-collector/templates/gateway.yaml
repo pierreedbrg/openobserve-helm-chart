@@ -54,6 +54,10 @@ spec:
   resources:
     {{- toYaml . | nindent 4 }}
   {{- end }}
+  {{- with .Values.gateway.podAnnotations }}
+  podAnnotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   config:
     receivers:
       {{- toYaml .Values.gateway.receivers | nindent 6 }}

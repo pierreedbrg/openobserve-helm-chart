@@ -47,6 +47,10 @@ spec:
   resources:
     {{- toYaml . | nindent 4 }}
   {{- end }}
+  {{- with .Values.agent.podAnnotations }}
+  podAnnotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   config:
     receivers:
       {{- toYaml .Values.agent.receivers | nindent 6 }}
