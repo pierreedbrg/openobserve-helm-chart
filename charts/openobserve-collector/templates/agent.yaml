@@ -6,6 +6,10 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
   labels:
     {{- include "openobserve-collector.labels" . | nindent 4 }}
+  {{- with .Values.agent.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   mode: {{ .Values.agent.mode }}
   serviceAccount: {{ include "openobserve-collector.serviceAccountName" . }}
