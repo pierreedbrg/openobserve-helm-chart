@@ -85,6 +85,7 @@ agent:
   enabled: true
    # "daemonset", "deployment" (default), "statefulset"
   mode: daemonset
+  labels: {}
   annotations: {}
   tolerations:
     - operator: Exists
@@ -310,6 +311,7 @@ gateway:
       #   memory: 64Mi
   affinity: {}
   nodeSelector: {}
+  labels: {}
   annotations: {}
   tolerations:
     - operator: Exists
