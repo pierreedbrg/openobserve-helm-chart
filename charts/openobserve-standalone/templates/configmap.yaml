@@ -30,7 +30,6 @@ data:
   ZO_GRPC_TLS_CERT_DOMAIN: "{{ .Values.config.ZO_GRPC_TLS_CERT_DOMAIN }}"
   ZO_GRPC_TLS_CERT_PATH: "{{ .Values.config.ZO_GRPC_TLS_CERT_PATH }}"
   ZO_GRPC_TLS_KEY_PATH: "{{ .Values.config.ZO_GRPC_TLS_KEY_PATH }}"
-  ZO_INTERNAL_GRPC_TOKEN: "{{ .Values.config.ZO_INTERNAL_GRPC_TOKEN }}"
   ZO_DATA_DIR: "{{ .Values.config.ZO_DATA_DIR }}"
   ZO_DATA_DB_DIR: "{{ .Values.config.ZO_DATA_DB_DIR }}"
   ZO_DATA_WAL_DIR: "{{ .Values.config.ZO_DATA_WAL_DIR }}"
@@ -40,14 +39,21 @@ data:
   ZO_UI_ENABLED: "{{ .Values.config.ZO_UI_ENABLED }}"
   ZO_UI_SQL_BASE64_ENABLED: "{{ .Values.config.ZO_UI_SQL_BASE64_ENABLED }}"
   ZO_WEB_URL: "{{ .Values.config.ZO_WEB_URL }}"
+  ZO_SSRF_ALLOW_LOOPBACK: {{ .Values.config.ZO_SSRF_ALLOW_LOOPBACK | quote }}
+  ZO_SKIP_SSRF_CHECKS: {{ .Values.config.ZO_SKIP_SSRF_CHECKS | quote }}
+  ZO_SSRF_ALLOWED_CIDRS: {{ .Values.config.ZO_SSRF_ALLOWED_CIDRS | quote }}
+  ZO_SSRF_ALLOWED_HOSTS: {{ .Values.config.ZO_SSRF_ALLOWED_HOSTS | quote }}
   ZO_BASE_URI: "{{ .Values.config.ZO_BASE_URI }}"
   ZO_META_STORE: "{{ .Values.config.ZO_META_STORE }}"
-  ZO_META_POSTGRES_DSN: "{{ .Values.config.ZO_META_POSTGRES_DSN }}"
+  # ZO_META_POSTGRES_DSN is intentionally NOT set here — it is a credential and is
+  # rendered into the Secret instead (see templates/secret.yaml). Set it via
+  # auth.ZO_META_POSTGRES_DSN (preferred) or config.ZO_META_POSTGRES_DSN.
   ZO_META_CONNECTION_POOL_MIN_SIZE: "{{ .Values.config.ZO_META_CONNECTION_POOL_MIN_SIZE }}"
   ZO_META_CONNECTION_POOL_MAX_SIZE: "{{ .Values.config.ZO_META_CONNECTION_POOL_MAX_SIZE }}"
   ZO_META_TRANSACTION_RETRIES: "{{ .Values.config.ZO_META_TRANSACTION_RETRIES }}"
   ZO_META_TRANSACTION_LOCK_TIMEOUT: "{{ .Values.config.ZO_META_TRANSACTION_LOCK_TIMEOUT }}"
   ZO_COLS_PER_RECORD_LIMIT: "{{ .Values.config.ZO_COLS_PER_RECORD_LIMIT }}"
+  ZO_FILE_FORMAT: "{{ .Values.config.ZO_FILE_FORMAT }}"
   ZO_FEATURE_FULLTEXT_EXTRA_FIELDS: "{{ .Values.config.ZO_FEATURE_FULLTEXT_EXTRA_FIELDS }}"
   ZO_FEATURE_INDEX_EXTRA_FIELDS: "{{ .Values.config.ZO_FEATURE_INDEX_EXTRA_FIELDS }}"
   ZO_FEATURE_DISTINCT_EXTRA_FIELDS: "{{ .Values.config.ZO_FEATURE_DISTINCT_EXTRA_FIELDS }}"
@@ -56,6 +62,8 @@ data:
   ZO_FEATURE_QUERY_PARTITION_STRATEGY: "{{ .Values.config.ZO_FEATURE_QUERY_PARTITION_STRATEGY }}"
   ZO_FEATURE_SHARED_MEMTABLE_ENABLED: "{{ .Values.config.ZO_FEATURE_SHARED_MEMTABLE_ENABLED }}"
   ZO_FEATURE_QUERY_STREAMING_AGGS: "{{ .Values.config.ZO_FEATURE_QUERY_STREAMING_AGGS }}"
+  ZO_FEATURE_PROFILING_ENABLED: "{{ .Values.config.ZO_FEATURE_PROFILING_ENABLED }}"
+  ZO_UTF8_VIEW_ENABLED: "{{ .Values.config.ZO_UTF8_VIEW_ENABLED }}"
   ZO_DATAFUSION_STREAMING_AGGS_CACHE_MAX_ENTRIES: "{{ .Values.config.ZO_DATAFUSION_STREAMING_AGGS_CACHE_MAX_ENTRIES }}"
   ZO_DATAFUSION_FILE_STAT_CACHE_MAX_ENTRIES: "{{ .Values.config.ZO_DATAFUSION_FILE_STAT_CACHE_MAX_ENTRIES }}"
   ZO_CACHE_DELAY_SECS: "{{ .Values.config.ZO_CACHE_DELAY_SECS }}"
@@ -82,7 +90,6 @@ data:
   ZO_TRACING_SEARCH_ENABLED: "{{ .Values.config.ZO_TRACING_SEARCH_ENABLED }}"
   ZO_SEARCH_INSPECTOR_ENABLED: "{{ .Values.config.ZO_SEARCH_INSPECTOR_ENABLED }}"
   ZO_TRACING_HEADER_KEY: "{{ .Values.config.ZO_TRACING_HEADER_KEY }}"
-  ZO_TRACING_HEADER_VALUE: "{{ .Values.config.ZO_TRACING_HEADER_VALUE }}"
   OTEL_OTLP_HTTP_ENDPOINT: "{{ .Values.config.OTEL_OTLP_HTTP_ENDPOINT }}"
   ZO_TELEMETRY: "{{ .Values.config.ZO_TELEMETRY }}"
   ZO_TELEMETRY_HEARTBEAT: "{{ .Values.config.ZO_TELEMETRY_HEARTBEAT }}"
@@ -138,7 +145,7 @@ data:
   ZO_COMPACT_STRATEGY: "{{ .Values.config.ZO_COMPACT_STRATEGY }}"
   ZO_COMPACT_MAX_FILE_SIZE: "{{ .Values.config.ZO_COMPACT_MAX_FILE_SIZE }}"
   ZO_COMPACT_DATA_RETENTION_DAYS: "{{ .Values.config.ZO_COMPACT_DATA_RETENTION_DAYS }}"
-  ZO_COMPACT_DELETE_FILES_DELAY_HOURS: "{{ .Values.config.ZO_COMPACT_DELETE_FILES_DELAY_HOURS }}"
+  ZO_COMPACT_DELETE_FILES_DELAY_MINUTES: "{{ .Values.config.ZO_COMPACT_DELETE_FILES_DELAY_MINUTES }}"
   ZO_COMPACT_BATCH_SIZE: "{{ .Values.config.ZO_COMPACT_BATCH_SIZE }}"
   ZO_COMPACT_BLOCKED_ORGS: "{{ .Values.config.ZO_COMPACT_BLOCKED_ORGS }}"
   ZO_MEMORY_CACHE_ENABLED: "{{ .Values.config.ZO_MEMORY_CACHE_ENABLED }}"
@@ -190,7 +197,6 @@ data:
   ZO_USAGE_REPORTING_ENABLED: "{{ .Values.config.ZO_USAGE_REPORTING_ENABLED }}"
   ZO_USAGE_REPORTING_MODE: "{{ .Values.config.ZO_USAGE_REPORTING_MODE }}"
   ZO_USAGE_REPORTING_URL: "{{ .Values.config.ZO_USAGE_REPORTING_URL }}"
-  ZO_USAGE_REPORTING_CREDS: "{{ .Values.config.ZO_USAGE_REPORTING_CREDS }}"
   ZO_USAGE_ORG: "{{ .Values.config.ZO_USAGE_ORG }}"
   ZO_USAGE_BATCH_SIZE: "{{ .Values.config.ZO_USAGE_BATCH_SIZE }}"
   ZO_PRINT_KEY_CONFIG: "{{ .Values.config.ZO_PRINT_KEY_CONFIG }}"
@@ -198,7 +204,6 @@ data:
   ZO_PRINT_KEY_SQL: "{{ .Values.config.ZO_PRINT_KEY_SQL }}"
   ZO_IGNORE_FILE_RETENTION_BY_STREAM: "{{ .Values.config.ZO_IGNORE_FILE_RETENTION_BY_STREAM }}"
   ZO_RUM_ENABLED: "{{ .Values.config.ZO_RUM_ENABLED }}"
-  ZO_RUM_CLIENT_TOKEN: "{{ .Values.config.ZO_RUM_CLIENT_TOKEN }}"
   ZO_RUM_APPLICATION_ID: "{{ .Values.config.ZO_RUM_APPLICATION_ID }}"
   ZO_RUM_SERVICE: "{{ .Values.config.ZO_RUM_SERVICE }}"
   ZO_RUM_ENV: "{{ .Values.config.ZO_RUM_ENV }}"
@@ -237,11 +242,46 @@ data:
   ZO_PROMETHEUS_ENABLED: "{{ .Values.config.ZO_PROMETHEUS_ENABLED }}"
   ZO_HISTOGRAM_ENABLED: "{{ .Values.config.ZO_HISTOGRAM_ENABLED }}"
   ZO_SGRAPH_ENABLED: "{{ .Values.config.ZO_SGRAPH_ENABLED }}"
+  # Synthetics (introduced in v1.0.1)
+{{- /* Written only when set, so the server's default applies otherwise; checked by kind so false and 0 are kept. */}}
+{{- range $key := list
+      "ZO_SYNTHETICS_ENABLED"
+      "ZO_SYNTHETICS_API_ENDPOINT"
+      "ZO_SYNTHETICS_BROWSERS"
+      "ZO_SYNTHETICS_DEVICES"
+      "ZO_SYNTHETICS_LAMBDA_BROWSER"
+      "ZO_SYNTHETICS_LAMBDA_NET"
+      "ZO_SYNTHETICS_INSTALL_SCRIPT_URL"
+      "ZO_SYNTHETICS_RECORDER_EXTENSION_URL"
+      "ZO_SYNTHETICS_AGENT_STALE_SECS"
+      "ZO_SYNTHETICS_JOB_LEASE_SECS"
+      "ZO_SYNTHETICS_MAX_CHECK_BUDGET_SECS"
+      "ZO_SYNTHETICS_MAX_NET_TIMEOUT_MS"
+      "ZO_SYNTHETICS_SCHEDULER_JITTER_ENABLED"
+      "ZO_SYNTHETICS_ORPHAN_DETECTION_ENABLED"
+}}
+{{- $val := index $.Values.config $key }}
+{{- if and (not (kindIs "invalid" $val)) (ne (toString $val) "") }}
+  {{ $key }}: {{ $val | toString | quote }}
+{{- end }}
+{{- end }}
+  # Alerts — composite / charts / eval (introduced in v1.0.1)
+  ZO_ALERT_CHART_ENABLED: "{{ .Values.config.ZO_ALERT_CHART_ENABLED }}"
+  ZO_ALERT_COMPOSITE_WRITES_ENABLED: "{{ .Values.config.ZO_ALERT_COMPOSITE_WRITES_ENABLED }}"
+  ZO_ALERT_COMPOSITE_DEBOUNCE_SECS: "{{ .Values.config.ZO_ALERT_COMPOSITE_DEBOUNCE_SECS }}"
+  ZO_ALERT_COMPOSITE_STALE_K: "{{ .Values.config.ZO_ALERT_COMPOSITE_STALE_K }}"
+  ZO_ALERT_COMPOSITE_SWEEP_SECS: "{{ .Values.config.ZO_ALERT_COMPOSITE_SWEEP_SECS }}"
+  ZO_ALERT_EVAL_LEDGER_RETENTION_DAYS: "{{ .Values.config.ZO_ALERT_EVAL_LEDGER_RETENTION_DAYS }}"
+  ZO_ALERT_TEST_SEND_PER_MINUTE: "{{ .Values.config.ZO_ALERT_TEST_SEND_PER_MINUTE }}"
+  ZO_ALERT_SCHEDULE_CONCURRENCY: "{{ .Values.config.ZO_ALERT_SCHEDULE_CONCURRENCY }}"
+  # Other (introduced in v1.0.1)
+  ZO_AI_SESSION_OWNER_TTL: "{{ .Values.config.ZO_AI_SESSION_OWNER_TTL }}"
+  ZO_TRACE_TIME_INDEX_ENABLED: "{{ .Values.config.ZO_TRACE_TIME_INDEX_ENABLED }}"
   RUST_LOG: "{{ .Values.config.RUST_LOG }}"
   RUST_BACKTRACE: "{{ .Values.config.RUST_BACKTRACE }}"
   {{- if .Values.enterprise.enabled }}
-  {{- if and (or (eq (.Values.enterprise.parameters.O2_AI_ENABLED | toString) "true") (eq .Values.enterprise.parameters.O2_AI_ENABLED true)) (not .Values.enterprise.sreagent.enabled) }}
-    {{- fail "ERROR: O2_AI_ENABLED is set to 'true' but enterprise.sreagent.enabled is not true. SRE Agent is required for AI features!" }}
+  {{- if and (eq (.Values.enterprise.parameters.O2_AI_ENABLED | toString) "true") (not .Values.enterprise.o2ai.enabled) }}
+    {{- fail "ERROR: O2_AI_ENABLED is set to 'true' but enterprise.o2ai.enabled is not true. SRE Agent is required for AI features!" }}
   {{- end }}
   # Enterprise parameters
   O2_AI_ENABLED: "{{ .Values.enterprise.parameters.O2_AI_ENABLED }}"
@@ -252,15 +292,16 @@ data:
   {{- end }}
   {{- if .Values.enterprise.parameters.O2_AGENT_URL }}
   O2_AGENT_URL: "{{ .Values.enterprise.parameters.O2_AGENT_URL }}"
-  {{- else if .Values.enterprise.sreagent.enabled }}
-  O2_AGENT_URL: "http://{{ include "openobserve.fullname" . }}-sreagent.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}:8000"
+  {{- else if .Values.enterprise.o2ai.enabled }}
+  O2_AGENT_URL: "http://{{ include "openobserve.fullname" . }}-o2ai.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}:8000"
   {{- end }}
-  ZO_MASTER_ENCRYPTION_ALGORITHM: "{{ .Values.enterprise.parameters.ZO_MASTER_ENCRYPTION_ALGORITHM }}"
-  ZO_MASTER_ENCRYPTION_KEY: "{{ .Values.enterprise.parameters.ZO_MASTER_ENCRYPTION_KEY }}"
+  {{- if .Values.enterprise.parameters.ZO_MASTER_ENCRYPTION_ALGORITHM }}
+  O2_MASTER_ENCRYPTION_ALGORITHM: "{{ .Values.enterprise.parameters.ZO_MASTER_ENCRYPTION_ALGORITHM }}"
+  {{- end }}
   O2_SERVICE_GRAPH_ENABLED: "{{ .Values.enterprise.parameters.O2_SERVICE_GRAPH_ENABLED }}"
-  O2_SERVICE_GRAPH_PROCESSING_INTERVAL_SECS: "{{ .Values.enterprise.parameters.O2_SERVICE_GRAPH_PROCESSING_INTERVAL_SECS }}"
-  O2_SERVICE_GRAPH_QUERY_TIME_RANGE_MINUTES: "{{ .Values.enterprise.parameters.O2_SERVICE_GRAPH_QUERY_TIME_RANGE_MINUTES }}"
-  O2_SERVICE_GRAPH_EXCLUDE_INTERNAL_SPANS: "{{ .Values.enterprise.parameters.O2_SERVICE_GRAPH_EXCLUDE_INTERNAL_SPANS }}"
+  O2_SERVICE_GRAPH_INTERVAL_SECS: "{{ .Values.enterprise.parameters.O2_SERVICE_GRAPH_INTERVAL_SECS }}"
+  O2_SERVICE_GRAPH_FLUSH_SECS: "{{ .Values.enterprise.parameters.O2_SERVICE_GRAPH_FLUSH_SECS }}"
+  O2_AGENT_SIGNALS_PROCESSING_INTERVAL_SECS: "{{ .Values.enterprise.parameters.O2_AGENT_SIGNALS_PROCESSING_INTERVAL_SECS }}"
   O2_INCIDENTS_ENABLED: "{{ .Values.enterprise.parameters.O2_INCIDENTS_ENABLED }}"
   O2_INCIDENTS_RCA_ENABLED: "{{ .Values.enterprise.parameters.O2_INCIDENTS_RCA_ENABLED }}"
   O2_INCIDENTS_AUTO_RESOLVE_AFTER_MINUTES: "{{ .Values.enterprise.parameters.O2_INCIDENTS_AUTO_RESOLVE_AFTER_MINUTES }}"
@@ -272,4 +313,12 @@ data:
   O2_SERVICE_STREAMS_MIN_CORRELATION_CONFIDENCE: "{{ .Values.enterprise.parameters.O2_SERVICE_STREAMS_MIN_CORRELATION_CONFIDENCE }}"
   O2_SERVICE_STREAMS_MAX_STREAMS_PER_SERVICE: "{{ .Values.enterprise.parameters.O2_SERVICE_STREAMS_MAX_STREAMS_PER_SERVICE }}"
   O2_SERVICE_STREAMS_SAMPLE_WINDOW_SECS: "{{ .Values.enterprise.parameters.O2_SERVICE_STREAMS_SAMPLE_WINDOW_SECS }}"
+  # Eval / LLM playground / Synthetics metering (introduced in v1.0.1)
+  O2_EVAL_EXPERIMENT_MAX_TRIAL_COUNT: "{{ .Values.enterprise.parameters.O2_EVAL_EXPERIMENT_MAX_TRIAL_COUNT }}"
+  O2_EVAL_OUTBOUND_CONNECT_TIMEOUT_SECS: "{{ .Values.enterprise.parameters.O2_EVAL_OUTBOUND_CONNECT_TIMEOUT_SECS }}"
+  O2_EVAL_OUTBOUND_MAX_RESPONSE_BYTES: "{{ .Values.enterprise.parameters.O2_EVAL_OUTBOUND_MAX_RESPONSE_BYTES }}"
+  O2_LLM_PLAYGROUND_RUN_TIMEOUT_MS: "{{ .Values.enterprise.parameters.O2_LLM_PLAYGROUND_RUN_TIMEOUT_MS }}"
+  O2_LLM_PLAYGROUND_SNAPSHOT_MAX_PER_ORG: "{{ .Values.enterprise.parameters.O2_LLM_PLAYGROUND_SNAPSHOT_MAX_PER_ORG }}"
+  O2_LLM_PLAYGROUND_SNAPSHOT_TTL_DAYS: "{{ .Values.enterprise.parameters.O2_LLM_PLAYGROUND_SNAPSHOT_TTL_DAYS }}"
+  O2_LLM_REVIEW_RECONCILE_INTERVAL_SECS: "{{ .Values.enterprise.parameters.O2_LLM_REVIEW_RECONCILE_INTERVAL_SECS }}"
   {{- end }}

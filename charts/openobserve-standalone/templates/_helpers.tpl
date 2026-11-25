@@ -43,7 +43,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 
 {{- $custom := .Values.labels | default dict -}}
 {{- range $key, $value := $custom }}
-{{ $key }}: {{ $value | quote }}
+{{ $key | quote }}: {{ $value | quote }}
 {{- end }}
 {{- end }}
 
@@ -66,5 +66,49 @@ Create the name of the service account to use
 {{- default (include "openobserve.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{/*
+Name of the dedicated Secret that holds ZO_REPORT_SERVER_SECRET.
+*/}}
+{{- define "openobserve.reportServerSecretName" -}}
+{{- printf "%s-report-server" (include "openobserve.fullname" . | trunc 49 | trimSuffix "-") }}
+{{- end }}
+
+{{/*
+Effective ZO_REPORT_SERVER_SECRET: the user's value, else the one in the existing dedicated Secret, else a new random one.
+*/}}
+{{- define "openobserve.reportServerSecret" -}}
+{{- if not .Values.auth.ZO_REPORT_SERVER_SECRET -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (include "openobserve.reportServerSecretName" .) | default dict -}}
+{{- $stored := dig "data" "ZO_REPORT_SERVER_SECRET" "" $existing | b64dec -}}
+{{- /* Cached in .Values so every include in one render (Secret and all checksums) sees the same value. */ -}}
+{{- $_ := set .Values.auth "ZO_REPORT_SERVER_SECRET" ($stored | default (randAlphaNum 48)) -}}
+{{- end -}}
+{{- .Values.auth.ZO_REPORT_SERVER_SECRET -}}
+{{- end }}
+
+{{/*
+Pod annotation that restarts a workload when anything in the chart Secret changes. It hashes the
+data of the rendered secret.yaml, so every key is covered, but not its labels, so a chart version
+bump alone doesn't restart pods.
+*/}}
+{{- define "openobserve.secretChecksumAnnotation" -}}
+checksum/secret: {{ (include (print .Template.BasePath "/secret.yaml") . | fromYaml).stringData | toJson | sha256sum }}
+{{- end }}
+
+{{/*
+Merge pod label maps, with each later map taking precedence over earlier ones. Keys and values are
+quoted, so YAML 1.1 words such as on, yes or null stay strings.
+Usage: include "openobserve.podLabels" (list .Values.podLabels .Values.someComponent.podLabels)
+*/}}
+{{- define "openobserve.podLabels" -}}
+{{- $merged := dict -}}
+{{- range . -}}
+{{- $merged = mergeOverwrite $merged (deepCopy (. | default dict)) -}}
+{{- end -}}
+{{- range $key, $value := $merged }}
+{{ $key | quote }}: {{ $value | quote }}
 {{- end }}
 {{- end }}

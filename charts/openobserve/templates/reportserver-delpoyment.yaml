@@ -1,12 +1,18 @@
 {{- if .Values.reportserver.enabled -}}
+{{- if .Values.autoscaling.enabled }}
+{{- /* Before 1.1.4 this key dropped replicas (one pod); ignoring it silently would scale the report server to replicaCount.reportserver (default 0). */}}
+{{- fail "autoscaling.enabled is no longer read. For the report server, set autoscaling.reportserver.enabled: true to autoscale it, or replicaCount.reportserver to the number of pods you want (it used to run 1), then remove autoscaling.enabled. See UPGRADING.md." }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "openobserve.fullname" . }}-reportserver
+  namespace: {{ .Release.Namespace | quote }}
   labels:
     {{- include "openobserve.labels" . | nindent 4 }}
 spec:
-  {{- if not .Values.autoscaling.enabled }}
+  {{- /* Leave replicas to the HPA when it is on (same condition as reportserver-hpa.yaml). */}}
+  {{- if not .Values.autoscaling.reportserver.enabled }}
   replicas: {{ .Values.replicaCount.reportserver }}
   {{- end }}
   selector:
@@ -21,9 +27,19 @@ spec:
         {{- end }}
         checksum/specific-config: {{ include (print $.Template.BasePath "/reportserver-configmap.yaml") . | sha256sum }}
         checksum/generic-config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with include "openobserve.secretChecksumAnnotation" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.auth.O2_AI_INTERNAL_SECRET }}
+        checksum/o2-ai-internal-secret: {{ printf "%s-%s" $.Release.Name . | sha256sum }}
+        {{- end }}
+        checksum/report-server-secret: {{ printf "%s-%s" $.Release.Name (include "openobserve.reportServerSecret" $) | sha256sum }}
       labels:
         {{- include "openobserve.selectorLabels" . | nindent 8 }}
         role: reportserver
+        {{- with include "openobserve.podLabels" (list .Values.podLabels .Values.reportserver.podLabels) }}
+        {{- . | trim | nindent 8 }}
+        {{- end }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -50,6 +66,11 @@ spec:
           env:
             - name: ZO_NODE_ROLE
               value: "reportserver"
+            - name: ZO_REPORT_SERVER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openobserve.reportServerSecretName" . }}
+                  key: ZO_REPORT_SERVER_SECRET
             {{- with include "openobserve.mergeEnv" (list .Values.extraEnv .Values.reportserver.extraEnv) }}
             {{- . | nindent 12 }}
             {{- end }}

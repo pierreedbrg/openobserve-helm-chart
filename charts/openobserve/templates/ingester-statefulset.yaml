@@ -10,6 +10,10 @@ spec:
   replicas: {{ .Values.replicaCount.ingester }}
   {{- end }}
   podManagementPolicy: Parallel
+  {{- with .Values.ingester.persistentVolumeClaimRetentionPolicy }}
+  persistentVolumeClaimRetentionPolicy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   updateStrategy:
     type: RollingUpdate
     rollingUpdate:
@@ -32,15 +36,35 @@ spec:
         {{- end }}
         checksum/specific-config: {{ include (print $.Template.BasePath "/ingester-configmap.yaml") . | sha256sum }}
         checksum/generic-config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with include "openobserve.secretChecksumAnnotation" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.auth.O2_AI_INTERNAL_SECRET }}
+        checksum/o2-ai-internal-secret: {{ printf "%s-%s" $.Release.Name . | sha256sum }}
+        {{- end }}
+        {{- if and .Values.enterprise.parameters.ZO_MASTER_ENCRYPTION_KEY (not .Values.externalSecret.enabled) }}
+        checksum/master-encryption-key: {{ printf "%s-%s" $.Release.Name .Values.enterprise.parameters.ZO_MASTER_ENCRYPTION_KEY | sha256sum }}
+        {{- end }}
+        checksum/report-server-secret: {{ printf "%s-%s" $.Release.Name (include "openobserve.reportServerSecret" $) | sha256sum }}
       labels:
         {{- include "openobserve.selectorLabels" . | nindent 8 }}
         role: ingester
+        {{- with include "openobserve.podLabels" (list .Values.podLabels .Values.ingester.podLabels) }}
+        {{- . | trim | nindent 8 }}
+        {{- end }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "openobserve.serviceAccountName" . }}
+      {{- /* The preStop drain hook (autoscaling.ingester.enabled) polls for up to ~16 minutes.
+             Without a pod-level grace period Kubernetes kills the pod after 30s. */}}
+      {{- if .Values.ingester.terminationGracePeriodSeconds }}
+      terminationGracePeriodSeconds: {{ .Values.ingester.terminationGracePeriodSeconds }}
+      {{- else if .Values.autoscaling.ingester.enabled }}
+      terminationGracePeriodSeconds: 1200
+      {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       
@@ -225,6 +249,11 @@ spec:
           env:
             - name: ZO_NODE_ROLE
               value: "ingester"
+            - name: ZO_REPORT_SERVER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openobserve.reportServerSecretName" . }}
+                  key: ZO_REPORT_SERVER_SECRET
             - name: K8S_CONTAINER_NAME
               value: "{{ .Chart.Name }}-ingester"
             {{- include "openobserve.k8sMetaEnv" . | nindent 12 }}

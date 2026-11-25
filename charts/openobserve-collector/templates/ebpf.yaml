@@ -1,0 +1,217 @@
+{{- if .Values.ebpf.enabled }}
+{{- $trace := .Values.ebpf.trace | default (dict) }}
+{{- $ports := $trace.ports | default (list) }}
+{{- $exePaths := $trace.exePaths | default (list) }}
+{{- $cmdLines := $trace.cmdLines | default (list) }}
+{{- range $name := list "ports" "exePaths" "cmdLines" }}
+{{- $v := index $trace $name }}
+{{- if not (or (kindIs "invalid" $v) (kindIs "slice" $v)) }}
+{{- fail (printf "ebpf.trace.%s must be a list, e.g. --set 'ebpf.trace.%s={...}'" $name $name) }}
+{{- end }}
+{{- end }}
+{{- $network := (.Values.ebpf.network | default (dict)).enabled }}
+{{- $tracing := or $ports $exePaths $cmdLines }}
+{{- if not (or $tracing $network) }}
+{{- fail "ebpf.enabled is true but ebpf.trace.ports, ebpf.trace.exePaths and ebpf.trace.cmdLines are all empty: set at least one to choose what to trace, or set ebpf.network.enabled=true" }}
+{{- end }}
+{{- $openPorts := list }}
+{{- range $ports }}
+{{- $p := toString . }}
+{{- if not (regexMatch "^[0-9]{1,5}(-[0-9]{1,5})?$" $p) }}
+{{- fail (printf "ebpf.trace.ports: %q is not a port (1-65535) or a range such as \"9000-9100\"" $p) }}
+{{- end }}
+{{- $bounds := splitList "-" $p }}
+{{- $first := atoi (first $bounds) }}
+{{- $last := atoi (last $bounds) }}
+{{- if or (lt $first 1) (gt $last 65535) (gt $first $last) }}
+{{- fail (printf "ebpf.trace.ports: %q is not a port (1-65535) or a range such as \"9000-9100\"" $p) }}
+{{- end }}
+{{- $openPorts = append $openPorts $p }}
+{{- end }}
+{{- range (concat $exePaths $cmdLines) }}
+{{- if not (and (kindIs "string" .) .) }}
+{{- fail (printf "ebpf.trace: exePaths and cmdLines entries must be non-empty strings, got %q" (toString .)) }}
+{{- end }}
+{{- if regexMatch "[,{}]" (toString .) }}
+{{- fail (printf "ebpf.trace: glob %q may not contain ',', '{' or '}'" (toString .)) }}
+{{- end }}
+{{- end }}
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: {{ include "openobserve-collector.fullname" . }}-ebpf
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "openobserve-collector.labels" . | nindent 4 }}
+spec:
+  # Explicitly set so the collector renders on opentelemetry-operator versions whose
+  # v1beta1 CRD requires spec.managementState. See templates/agent.yaml.
+  managementState: {{ .Values.managementState | default "managed" }}
+  mode: daemonset
+  # spec.hostPID needs opentelemetry-operator v0.142.0 or later.
+  hostPID: true
+  {{- if $network }}
+  # Network flow capture watches the node's interfaces, not only the pod's.
+  hostNetwork: true
+  {{- end }}
+  serviceAccount: {{ include "openobserve-collector.serviceAccountName" . }}
+  image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+  {{- with .Values.image.pullPolicy }}
+  imagePullPolicy: {{ . }}
+  {{- end }}
+  {{- with .Values.image.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  securityContext:
+    privileged: true
+    runAsUser: 0
+  {{- with .Values.ebpf.extraEnv }}
+  env:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.ebpf.tolerations }}
+  tolerations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.ebpf.nodeSelector }}
+  nodeSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.ebpf.affinity }}
+  affinity:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.ebpf.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  volumes:
+    - name: cgroup
+      hostPath:
+        path: /sys/fs/cgroup
+    - name: security
+      hostPath:
+        path: /sys/kernel/security
+    - name: tracing
+      hostPath:
+        path: /sys/kernel/tracing
+  volumeMounts:
+    # OBI attaches its context propagation program to the cgroup v2 root here. On a
+    # runtime that gives the pod a private cgroup namespace, that would be the pod's own
+    # cgroup, with no application sockets.
+    - name: cgroup
+      mountPath: /sys/fs/cgroup
+    # OBI reads the kernel lockdown mode here.
+    - name: security
+      mountPath: /sys/kernel/security
+      readOnly: true
+    # tracefs: OBI attaches tracepoints through it. Without it, on kernels with the
+    # FIONREAD sockhash bug, OBI turns off context propagation for non-Go processes.
+    - name: tracing
+      mountPath: /sys/kernel/tracing
+      readOnly: true
+  config:
+    receivers:
+      obi:
+        # The legacy (v1) schema: OBI v0.15.2 rejects attribute selection in the
+        # receiver's 2.0 config.
+        {{- if $network }}
+        network:
+          enable: true
+        # Network flow metrics only, not application RED metrics.
+        metrics:
+          features: [network]
+        attributes:
+          select:
+            # Each node sees only its own pods' flows, so both ends' nodes let the UI add
+            # per-node shares without double counting. An include list replaces OBI's
+            # defaults, so it repeats them, plus host.id, the reporting node's resource
+            # attribute, which it also filters. The receiver matches the key as written, so
+            # it is OBI's internal name for obi.network.flow.bytes.
+            obi.network.flow:
+              include:
+                - host.id
+                - direction
+                - k8s.src.owner.name
+                - k8s.src.owner.type
+                - k8s.src.namespace
+                - k8s.dst.owner.name
+                - k8s.dst.owner.type
+                - k8s.dst.namespace
+                - k8s.cluster.name
+                - k8s.src.node.name
+                - k8s.dst.node.name
+        {{- end }}
+        enforce_sys_caps: true
+        ebpf:
+          context_propagation: headers
+        {{- if $tracing }}
+        # A process matching any selector is traced. OBI's built-in exclusions still
+        # apply and win over these: OBI and collector binaries, system namespaces, and
+        # apps that already export OTLP.
+        discovery:
+          instrument:
+            {{- if $openPorts }}
+            - open_ports: {{ join "," $openPorts | quote }}
+            {{- end }}
+            {{- if $exePaths }}
+            - exe_path: {{ printf "{%s}" (join "," $exePaths) | quote }}
+            {{- end }}
+            {{- if $cmdLines }}
+            - cmd_args: {{ printf "{%s}" (join "," $cmdLines) | quote }}
+            {{- end }}
+        {{- end }}
+    processors:
+      memory_limiter:
+        {{- toYaml .Values.ebpf.memoryLimiter | nindent 8 }}
+      # Drop spans from processes outside any pod; the gateway would label them with
+      # this collector's pod.
+      filter/node_processes:
+        error_mode: ignore
+        traces:
+          span:
+            - resource.attributes["k8s.pod.uid"] == nil
+      attributes:
+        actions:
+          - key: k8s_cluster
+            action: insert
+            value: {{ .Values.k8sCluster | quote }}
+      batch:
+        send_batch_size: 2000
+        send_batch_max_size: 5000
+        timeout: 5s
+    exporters:
+      {{- if .Values.gateway.enabled }}
+      otlphttp/gateway:
+        endpoint: http://{{ include "openobserve-collector.fullname" . }}-gateway-collector.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}:4318
+      {{- else }}
+      otlphttp/openobserve:
+        {{- toYaml (index .Values.exporters "otlphttp/openobserve") | nindent 8 }}
+      {{- end }}
+    service:
+      {{- if $network }}
+      # On the host network, keep the collector's own metrics off the node's addresses.
+      telemetry:
+        metrics:
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: 127.0.0.1
+                    port: 8888
+      {{- end }}
+      pipelines:
+        {{- if $tracing }}
+        traces:
+          receivers: [obi]
+          processors: [memory_limiter, filter/node_processes, attributes, batch]
+          exporters: [{{ if .Values.gateway.enabled }}otlphttp/gateway{{ else }}otlphttp/openobserve{{ end }}]
+        {{- end }}
+        {{- if $network }}
+        metrics:
+          receivers: [obi]
+          processors: [memory_limiter, attributes, batch]
+          exporters: [{{ if .Values.gateway.enabled }}otlphttp/gateway{{ else }}otlphttp/openobserve{{ end }}]
+        {{- end }}
+{{- end }}

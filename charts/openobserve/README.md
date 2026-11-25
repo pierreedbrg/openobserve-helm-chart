@@ -16,7 +16,7 @@ You must set a minimum of 2 values:
 Install the Cloud Native PostgreSQL Operator. This is a prerequisite for openobserve helm chart. This helm chart sets up a postgres database cluster (1 primary + 1 replica) and uses it as metadata store of OpenObserve.
 ```shell
 kubectl apply --server-side -f \
-  https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.27/releases/cnpg-1.27.1.yaml
+  https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.30/releases/cnpg-1.30.0.yaml
 ```
 
 Install the openobserve helm chart
@@ -37,28 +37,28 @@ helm --namespace openobserve delete o2
 
 ## Enterprise Features
 
-### SRE Agent (AI-Powered Operations)
+### O2 AI (AI-Powered Operations)
 
-The SRE Agent is an enterprise-only feature that enables AI-powered operations and intelligent troubleshooting capabilities in OpenObserve.
+O2 AI is an enterprise-only feature that enables AI-powered operations and intelligent troubleshooting capabilities in OpenObserve.
 
 #### Prerequisites
 
-1. **Enterprise License**: SRE Agent is only available with OpenObserve Enterprise
+1. **Enterprise License**: O2 AI is only available with OpenObserve Enterprise
 2. **API Key**: You need an API key from one of the supported AI providers (OpenAI, Anthropic, Gemini, etc.)
 
 #### Configuration
 
-To enable the SRE Agent, set the following values in your `values.yaml`:
+To enable O2 AI, set the following values in your `values.yaml`:
 
 ```yaml
 enterprise:
   enabled: true
   parameters:
     O2_AI_ENABLED: "true"  # Enable AI features
-  sreagent:
-    enabled: true  # Deploy SRE Agent (required when O2_AI_ENABLED is true)
+  o2ai:
+    enabled: true  # Deploy O2 AI (required when O2_AI_ENABLED is true)
     config:
-      O2_AI_MODEL: "claude-3-5-sonnet-20241022"  # Or your preferred model
+      O2_AI_MODEL: "claude-sonnet-4-6"  # Or your preferred model
       O2_AI_PROVIDER: "anthropic"  # Options: openai, anthropic, gemini, etc.
 
 auth:
@@ -67,9 +67,74 @@ auth:
   O2_MCP_PASSWORD: "your-password"  # MCP authentication (optional)
 ```
 
+#### Cluster Access (kubectl)
+
+O2 AI can execute `kubectl`, `aws`, `az`, `git`, and `gh` commands against the local cluster. This is disabled by default. When enabled, a dedicated ServiceAccount, ClusterRole, and ClusterRoleBinding are created and the pod mounts a CLI config at `/app/config.yaml`.
+
+```yaml
+enterprise:
+  o2ai:
+    clusterAccess:
+      enabled: true
+```
+
+**IRSA on AWS EKS** — annotate the ServiceAccount with an IAM role so the pod can also run `aws` CLI commands:
+
+```yaml
+enterprise:
+  o2ai:
+    clusterAccess:
+      enabled: true
+      serviceAccount:
+        annotations:
+          eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/ROLE_NAME
+```
+
+**GKE Workload Identity**:
+
+```yaml
+enterprise:
+  o2ai:
+    clusterAccess:
+      enabled: true
+      serviceAccount:
+        annotations:
+          iam.gke.io/gcp-service-account: SA_NAME@PROJECT_ID.iam.gserviceaccount.com
+```
+
+**Custom RBAC rules** — override the default ClusterRole rules (read/write on pods, deployments, services, etc.):
+
+```yaml
+enterprise:
+  o2ai:
+    clusterAccess:
+      enabled: true
+      rbac:
+        rules:
+          - apiGroups: [""]
+            resources: ["pods", "services", "namespaces"]
+            verbs: ["get", "list", "watch"]
+```
+
+**Custom CLI config** — override which commands the agent is allowed to run:
+
+```yaml
+enterprise:
+  o2ai:
+    cliConfig:
+      clis:
+        kubectl:
+          command: kubectl
+          allowed_subcommands: ["get", "describe", "logs"]
+          timeout_seconds: 30
+          description: "Read-only kubectl access"
+    clusterAccess:
+      enabled: true
+```
+
 #### Using AI Gateway
 
-If you have an AI Gateway deployed (e.g., Envoy Gateway with AI routing), you can configure the SRE Agent to route through it:
+If you have an AI Gateway deployed (e.g., Envoy Gateway with AI routing), you can configure O2 AI to route through it:
 
 ```yaml
 aiGateway:
@@ -83,22 +148,53 @@ When using an AI Gateway, you don't need to specify `O2_AI_PROVIDER` as the gate
 
 **Deploy Envoy Gateway and AI Gateway**: For instructions on deploying Envoy Gateway with AI routing capabilities, rate limiting, and metrics blocking, see: [https://github.com/openobserve/o2-envoy-gateway](https://github.com/openobserve/o2-envoy-gateway)
 
+#### Internal Secret Between OpenObserve and O2 AI (optional)
+
+Set `auth.O2_AI_INTERNAL_SECRET` to make O2 AI accept incident root-cause-analysis (`sre-rca`) requests only from callers that present a shared secret:
+
+```yaml
+auth:
+  O2_AI_INTERNAL_SECRET: "<random value, e.g. from: openssl rand -hex 32>"
+```
+
+When set, the value is stored in the chart's Secret and the same value is given to both sides:
+
+- the O2 AI container as `O2_INTERNAL_API_SECRET`: it rejects `sre-rca` requests with 401 unless the `x-o2-internal-secret` header matches
+- every OpenObserve component as `O2_AI_INTERNAL_SECRET`: it sends that header on `sre-rca` calls
+
+This is opt-in and empty by default, in which case nothing is set on either side. Only enable it with an OpenObserve image that sends the `x-o2-internal-secret` header; an older image would get 401 from the agent and incident RCA would stop working. Once it is set, you can also make O2 AI refuse to start without the secret:
+
+```yaml
+enterprise:
+  o2ai:
+    extraEnv:
+      - name: O2_REQUIRE_INTERNAL_SECRET
+        value: "true"
+```
+
+Setting or changing the value through `auth.O2_AI_INTERNAL_SECRET` restarts O2 AI and the OpenObserve pods together, because each pod template carries a checksum of it, so both sides switch at the same time. With `externalSecret.enabled: true` the chart cannot see the value, so after adding or rotating the key run `kubectl rollout restart` on O2 AI and every OpenObserve workload, otherwise pods that started earlier keep the old value and `sre-rca` calls get 401.
+
+With `externalSecret.enabled: true`, add an `O2_AI_INTERNAL_SECRET` key to your external secret instead; both sides pick it up from there, and nothing is set while the key is absent. `auth.O2_AI_INTERNAL_SECRET` is ignored in that mode.
+
 #### Important Notes
 
-- **Validation**: The deployment will fail if `O2_AI_ENABLED` is set to `"true"` but `enterprise.sreagent.enabled` is not `true`
-- **Resource Requirements**: The SRE Agent requires additional resources. Default requests are 256Mi memory and 250m CPU
-- **Scaling**: The SRE Agent supports horizontal pod autoscaling when needed
+- **Validation**: The deployment will fail if `O2_AI_ENABLED` is set to `"true"` but `enterprise.o2ai.enabled` is not `true`
+- **Resource Requirements**: O2 AI requires additional resources. Default requests are 256Mi memory and 250m CPU
+- **Scaling**: O2 AI supports horizontal pod autoscaling when needed
 
 ### Service Graph
 
-Visualize service dependencies and interactions:
+Visualize service dependencies and interactions. OpenObserve builds the service graph from ingested traces on the server side (on by default), so you do not need the OpenTelemetry `servicegraph` connector in your collector. If both write for the same organization, the service graph page uses only OpenObserve's series, but your own PromQL over `traces_service_graph_*` counts requests twice unless it matches `trace_stream`.
 
 ```yaml
 enterprise:
   parameters:
     O2_SERVICE_GRAPH_ENABLED: "true"
-    O2_SERVICE_GRAPH_PROCESSING_INTERVAL_SECS: "300"
+    O2_SERVICE_GRAPH_INTERVAL_SECS: "60"
+    O2_SERVICE_GRAPH_FLUSH_SECS: "60"
 ```
+
+Only data older than `ZO_CACHE_DELAY_SECS` (default 300) is rolled up, so new edges show up after that delay.
 
 ### Incidents Management
 

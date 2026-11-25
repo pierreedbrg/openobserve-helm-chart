@@ -6,18 +6,17 @@ image:
   oss:
     repository: o2cr.ai/openobserve/openobserve
     # Overrides the image tag whose default is the chart appVersion.
-    tag: "v0.70.3"
+    tag: "v1.1.2"
   enterprise:
     repository: o2cr.ai/openobserve/openobserve-enterprise
     # Overrides the image tag whose default is the chart appVersion.
-    tag: "v0.70.3"
+    tag: "v1.1.2"
   busybox:
     repository: public.ecr.aws/docker/library/busybox
     tag: 1.36.1
-  sreagent:
-    repository: public.ecr.aws/zinclabs/o2-sre-agent
-    # repository: 058694856476.dkr.ecr.us-east-2.amazonaws.com/openobserve/o2-sre-agent
-    tag: "v1.1.6"
+  o2ai:
+    repository: ghcr.io/openobserve/o2-ai
+    tag: "v1.1.0"
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -37,6 +36,9 @@ serviceAccount:
 
 podAnnotations: {}
 
+# Extra labels added to every pod the chart creates. A component's own podLabels win on the same key.
+podLabels: {}
+
 labels: {}
 
 podSecurityContext:
@@ -45,14 +47,24 @@ podSecurityContext:
   runAsGroup: 3000
   runAsNonRoot: true
 
-securityContext:
-  {}
+securityContext: {}
   # capabilities:
   #   drop:
   #   - ALL
   # readOnlyRootFilesystem: true
   # runAsNonRoot: true
   # runAsUser: 1000
+
+# Optional writable cache volume. Enable this when running with
+# securityContext.readOnlyRootFilesystem: true so OpenObserve can create its cache
+# directory (otherwise the process panics with a ReadOnlyFilesystem error).
+# NOTE: also set config.ZO_DATA_CACHE_DIR to the same mountPath so the app writes its
+# cache there. Validate the path for your app version before relying on it.
+cache:
+  enabled: false
+  mountPath: /cache
+  # medium: "Memory"   # use a tmpfs-backed emptyDir instead of node disk
+  # sizeLimit: "2Gi"   # optional emptyDir size limit
 
 persistence:
   enabled: true
@@ -82,11 +94,16 @@ auth:
   # OpenObserve root user password
   ZO_ROOT_USER_PASSWORD: "Complexpass#123"
   ZO_ROOT_USER_TOKEN: ""
-  # AI API key for o2-sre-agent (required if enterprise.sreagent.enabled=true)
+  # AI API key for o2ai (required if enterprise.o2ai.enabled=true)
   O2_AI_API_KEY: "" # OpenAI, Anthropic, Gemini, or other provider API key
-  # MCP authentication for o2-sre-agent (optional)
+  # MCP authentication for o2ai (optional)
   O2_MCP_USERNAME: "root@example.com" # MCP authentication username
   O2_MCP_PASSWORD: "Complexpass#123" # MCP authentication password
+  # Shared secret between OpenObserve and o2ai (optional, opt-in). When set, o2ai gets it as O2_INTERNAL_API_SECRET
+  # and rejects sre-rca calls without a matching x-o2-internal-secret header; OpenObserve gets it as O2_AI_INTERNAL_SECRET
+  # and sends that header. Requires an OpenObserve image that sends the header. Generate with: openssl rand -hex 32
+  O2_AI_INTERNAL_SECRET: ""
+  ZO_REPORT_SERVER_SECRET: "" # Shared by OpenObserve and the report server; empty means the chart generates one and keeps it across upgrades
 
   existingRootUserSecret:
     # Existing secret with OpenObserve root user credentials.
@@ -103,6 +120,12 @@ auth:
   AZURE_STORAGE_ACCOUNT_KEY: ""
   AZURE_STORAGE_ACCOUNT_NAME: ""
 
+  # External metadata Postgres DSN. Set this to run standalone with Postgres as the
+  # meta store (also set config.ZO_META_STORE: "postgres"). It is a credential, so it
+  # is stored in the Secret, not the ConfigMap. Takes precedence over
+  # config.ZO_META_POSTGRES_DSN if both are set.
+  ZO_META_POSTGRES_DSN: ""
+
 # https://openobserve.ai/docs/environment-variables/
 config:
   ZO_APP_NAME: "openobserve"
@@ -117,7 +140,7 @@ config:
   ZO_GRPC_PORT: "5081"
   ZO_GRPC_ADDR: ""
   ZO_GRPC_CONNECT_TIMEOUT: "600"
-  ZO_GRPC_MAX_MESSAGE_SIZE: "16"
+  ZO_GRPC_MAX_MESSAGE_SIZE: "32"
   ZO_GRPC_CHANNEL_CACHE_DISABLED: "false"
   ZO_GRPC_ORG_HEADER_KEY: "organization"
   ZO_GRPC_STREAM_HEADER_KEY: "stream-name"
@@ -143,6 +166,7 @@ config:
   ZO_META_TRANSACTION_RETRIES: "3"
   ZO_META_TRANSACTION_LOCK_TIMEOUT: "600" # seconds
   ZO_COLS_PER_RECORD_LIMIT: "200"
+  ZO_FILE_FORMAT: "parquet"
   ZO_FEATURE_FULLTEXT_EXTRA_FIELDS: ""
   ZO_FEATURE_INDEX_EXTRA_FIELDS: ""
   ZO_FEATURE_DISTINCT_EXTRA_FIELDS: ""
@@ -151,12 +175,18 @@ config:
   ZO_FEATURE_QUERY_PARTITION_STRATEGY: "file_num"
   ZO_FEATURE_SHARED_MEMTABLE_ENABLED: "false"
   ZO_FEATURE_QUERY_STREAMING_AGGS: "true"
+  ZO_FEATURE_PROFILING_ENABLED: "true" # show the Profiles module in the UI
+  ZO_UTF8_VIEW_ENABLED: "false"
   ZO_DATAFUSION_STREAMING_AGGS_CACHE_MAX_ENTRIES: "10000"
   ZO_DATAFUSION_FILE_STAT_CACHE_MAX_ENTRIES: "10000"
   ZO_CACHE_DELAY_SECS: "300"
   ZO_RESULT_CACHE_ENABLED: "false"
   ZO_METRICS_CACHE_ENABLED: "true"
   ZO_METRICS_CACHE_MAX_ENTRIES: "10000"
+  ZO_SSRF_ALLOW_LOOPBACK: "false" # allow outbound notifications to loopback addresses; single-node/CI only
+  ZO_SKIP_SSRF_CHECKS: "false" # skips all SSRF checks, not only loopback
+  ZO_SSRF_ALLOWED_CIDRS: "" # use comma to split multiple CIDRs exempt from SSRF checks
+  ZO_SSRF_ALLOWED_HOSTS: "" # use comma to split multiple hosts exempt from SSRF checks
   ZO_QUERY_OPTIMIZATION_NUM_FIELDS: "0"
   ZO_SCHEMA_MAX_FIELDS_TO_ENABLE_UDS: "150"
   ZO_USER_DEFINED_SCHEMA_MAX_FIELDS: "200"
@@ -185,10 +215,10 @@ config:
   ZO_JSON_LIMIT: "209715200"
   ZO_PAYLOAD_LIMIT: "209715200"
   ZO_PARQUET_MAX_ROW_GROUP_SIZE: "0"
-  ZO_MAX_FILE_SIZE_ON_DISK: "128"
-  ZO_MAX_FILE_SIZE_IN_MEMORY: "128"
+  ZO_MAX_FILE_SIZE_ON_DISK: "512"
+  ZO_MAX_FILE_SIZE_IN_MEMORY: "512"
   ZO_MAX_FILE_RETENTION_TIME: "600"
-  ZO_FILE_PUSH_INTERVAL: "10"
+  ZO_FILE_PUSH_INTERVAL: "2"
   ZO_FILE_PUSH_LIMIT: "10000"
   ZO_FILE_MOVE_THREAD_NUM: "0"
   ZO_FILE_MERGE_THREAD_NUM: "0"
@@ -231,9 +261,9 @@ config:
   ZO_COMPACT_INTERVAL: "10"
   ZO_COMPACT_SYNC_TO_DB_INTERVAL: "600"
   ZO_COMPACT_STRATEGY: "file_time"
-  ZO_COMPACT_MAX_FILE_SIZE: "512"
+  ZO_COMPACT_MAX_FILE_SIZE: "2048"
   ZO_COMPACT_DATA_RETENTION_DAYS: "3650"
-  ZO_COMPACT_DELETE_FILES_DELAY_HOURS: "2"
+  ZO_COMPACT_DELETE_FILES_DELAY_MINUTES: "120"
   ZO_COMPACT_BATCH_SIZE: "0"
   ZO_COMPACT_BLOCKED_ORGS: ""
   ZO_MEMORY_CACHE_ENABLED: "false"
@@ -275,7 +305,7 @@ config:
   ZO_USAGE_BATCH_SIZE: "2000"
   ZO_PRINT_KEY_CONFIG: "false"
   ZO_PRINT_KEY_EVENT: "false"
-  ZO_PRINT_KEY_SQL: "false"
+  ZO_PRINT_KEY_SQL: "true"
   ZO_IGNORE_FILE_RETENTION_BY_STREAM: "false"
   ZO_RUM_ENABLED: "false"
   ZO_RUM_CLIENT_TOKEN: ""
@@ -316,6 +346,27 @@ config:
   ZO_PROMETHEUS_ENABLED: "false"
   ZO_HISTOGRAM_ENABLED: "true" # show/hide histogram on logs page by default
   ZO_SGRAPH_ENABLED: "true"
+  # Synthetics (introduced in v1.0.1)
+  ZO_SYNTHETICS_ENABLED: "true"
+  # No other ZO_SYNTHETICS_* key is set here on purpose. The server already defines a
+  # default for each one, and a key listed here is an override, not a default:
+  # it is written into the ConfigMap and wins over the server's own value.
+  # Set only the keys you actually want to change, for example:
+  #   ZO_SYNTHETICS_API_ENDPOINT: "https://o2.example.com"
+  #   ZO_SYNTHETICS_LAMBDA_NET: "o2-synthetics-net-probe"
+  # Alerts — composite / charts / eval (introduced in v1.0.1)
+  ZO_ALERT_CHART_ENABLED: "true"
+  ZO_ALERT_CHART_SIGNING_KEY: ""
+  ZO_ALERT_COMPOSITE_WRITES_ENABLED: "true"
+  ZO_ALERT_COMPOSITE_DEBOUNCE_SECS: "15"
+  ZO_ALERT_COMPOSITE_STALE_K: "3"
+  ZO_ALERT_COMPOSITE_SWEEP_SECS: "300"
+  ZO_ALERT_EVAL_LEDGER_RETENTION_DAYS: "97"
+  ZO_ALERT_TEST_SEND_PER_MINUTE: "6"
+  ZO_ALERT_SCHEDULE_CONCURRENCY: "50" # max alert jobs pulled from the scheduler per cycle
+  # Other (introduced in v1.0.1)
+  ZO_AI_SESSION_OWNER_TTL: "86400" # seconds
+  ZO_TRACE_TIME_INDEX_ENABLED: "true"
   RUST_LOG: "info"
   RUST_BACKTRACE: "0"
 
@@ -326,6 +377,21 @@ extraEnv: []
 #     secretKeyRef:
 #       name: s3credentials-secret
 #       key: S3_KEY
+
+# Prometheus Operator ServiceMonitor to scrape OpenObserve's /metrics endpoint.
+# Requires the Prometheus Operator CRDs (monitoring.coreos.com/v1) to be installed.
+serviceMonitor:
+  enabled: false
+  # namespace: ""            # defaults to the release namespace
+  # additionalLabels: {}     # e.g. { release: kube-prometheus-stack } to match your Prometheus selector
+  interval: 30s
+  scrapeTimeout: 10s
+  path: /metrics
+  scheme: http
+  honorLabels: false
+  # tlsConfig: {}
+  relabelings: []
+  metricRelabelings: []
 
 service:
   type: ClusterIP
@@ -342,12 +408,27 @@ certIssuer:
 secret:
   annotations: {}
 
+# blocked-metrics is a small nginx sidecar deployed when ingress is enabled (and the
+# gateway is not) to block public access to the /metrics endpoints.
+blockedMetrics:
+  # Resources for the blocked-metrics nginx container. Exposed because the previous
+  # hardcoded 32Mi limit could OOMKill the container in some environments.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 50m
+      memory: 128Mi
+
 ingress:
   enabled: false
   className: "nginx"
   # NOTE: /metrics and /api/metrics endpoints are always blocked for public access when ingress is enabled
   annotations:
-    cert-manager.io/issuer: letsencrypt
+    # NOTE: the cert-manager.io/issuer annotation is NOT set here. It is injected
+    # automatically by the ingress template when certIssuer.enabled=true. This lets you
+    # use your own cert-manager.io/cluster-issuer here without a conflicting issuer.
     kubernetes.io/tls-acme: "true"
     nginx.ingress.kubernetes.io/enable-cors: "true"
     # nginx.ingress.kubernetes.io/connection-proxy-header: keep-alive
@@ -372,11 +453,11 @@ gateway:
   # TLS Certificate configuration (requires cert-manager)
   # Creates Certificate resources for HTTPS listeners on Gateways
   certificates:
-    enabled: false  # Set to true to create cert-manager Certificate resources
+    enabled: false # Set to true to create cert-manager Certificate resources
     # Cert-manager issuer configuration
     issuerRef:
-      name: "letsencrypt-prod"  # ClusterIssuer or Issuer name
-      kind: "ClusterIssuer"     # ClusterIssuer or Issuer
+      name: "letsencrypt-prod" # ClusterIssuer or Issuer name
+      kind: "ClusterIssuer" # ClusterIssuer or Issuer
     # List of certificates to create
     certs: []
       # Example:
@@ -416,7 +497,7 @@ gateway:
                   value: /
             backendRefs:
               # Use the full service name (will be {{ release-name }}-openobserve-standalone)
-              - name: o2-openobserve-standalone  # Change this to match your release name
+              - name: o2-openobserve-standalone # Change this to match your release name
                 port: 5080
 
 # You can specify resources for each deployment independently.
@@ -470,45 +551,12 @@ minio:
       - ReadWriteOnce
     annotations: {}
 
-# zPlane enables elasticsearch compatibility for openobserve. Copyright (c) 2023 Zinc Labs Inc.
-# You can enable zPlane by setting enabled to true
-# zPlane is a commercial software and requires a license to be used.
-# Reach out to hello@zinclabs.io for commercial license if you continue to use zPlane
-zplane:
-  enabled: false # if true then zPlane will be deployed as part of openobserve
-  image:
-    repository: o2cr.ai/openobserve/zplane
-    tag: 0.1.6
-    pullPolicy: IfNotPresent
-  service:
-    type: ClusterIP
-    port: 9200
-    annotations: {}
-  ingress: # if enabled is true then this is required
-    enabled: false
-    className: ""
-    annotations:
-      {}
-      # kubernetes.io/ingress.class: nginx
-      # cert-manager.io/issuer: letsencrypt
-      # kubernetes.io/tls-acme: true
-    hosts:
-      - host: chart-example.local
-        paths:
-          - path: /
-            pathType: ImplementationSpecific
-    tls:
-      []
-      # - secretName: chart-example-tls
-      #   hosts:
-      #     - chart-example.local
-
 probes:
   enabled: true
   initialDelaySeconds: 10
   failureThreshold: 3
   path: /healthz
-  sreagent:
+  o2ai:
     enabled: true
     config:
       readinessProbe:
@@ -555,18 +603,19 @@ enterprise:
     O2_METRICS_DOWNSAMPLING_RULES: ""
     O2_RATE_LIMIT_ENABLED: "false"
     O2_RATE_LIMIT_RULE_REFRESH_INTERVAL: "10" # in seconds"
-    # AI features - requires o2-sre-agent to be enabled
-    # IMPORTANT: If O2_AI_ENABLED is "true", you MUST also set enterprise.sreagent.enabled to true
+    # AI features - requires o2ai to be enabled
+    # IMPORTANT: If O2_AI_ENABLED is "true", you MUST also set enterprise.o2ai.enabled to true
     O2_AI_ENABLED: "false"
-    O2_AGENT_URL: ""  # Leave empty to use default auto-generated URL
-    O2_TOOL_API_URL: ""  # Leave empty to use default auto-generated URL
-    ZO_MASTER_ENCRYPTION_ALGORITHM: "" # MUST be empty if key is empty
+    O2_AGENT_URL: "" # Leave empty to use default auto-generated URL
+    O2_TOOL_API_URL: "" # Leave empty to use default auto-generated URL
+    ZO_MASTER_ENCRYPTION_ALGORITHM: ""
     ZO_MASTER_ENCRYPTION_KEY: ""
     # Service Graph features
-    O2_SERVICE_GRAPH_ENABLED: "false"
-    O2_SERVICE_GRAPH_PROCESSING_INTERVAL_SECS: "300"
-    O2_SERVICE_GRAPH_QUERY_TIME_RANGE_MINUTES: "10"
-    O2_SERVICE_GRAPH_EXCLUDE_INTERNAL_SPANS: "false"
+    O2_SERVICE_GRAPH_ENABLED: "true"
+    O2_SERVICE_GRAPH_INTERVAL_SECS: "60" # how often the rollup job runs
+    O2_SERVICE_GRAPH_FLUSH_SECS: "60" # window width; one sample per series per window
+    # Agent signals features
+    O2_AGENT_SIGNALS_PROCESSING_INTERVAL_SECS: "3600"
     # Incidents and RCA features
     O2_INCIDENTS_ENABLED: "false"
     O2_INCIDENTS_RCA_ENABLED: "false"
@@ -580,20 +629,29 @@ enterprise:
     O2_SERVICE_STREAMS_MIN_CORRELATION_CONFIDENCE: "0.20"
     O2_SERVICE_STREAMS_MAX_STREAMS_PER_SERVICE: "100"
     O2_SERVICE_STREAMS_SAMPLE_WINDOW_SECS: "3600"
-  sreagent:
+    # Eval / LLM playground / Synthetics metering (introduced in v1.0.1)
+    O2_EVAL_EXPERIMENT_MAX_TRIAL_COUNT: "10"
+    O2_EVAL_OUTBOUND_CONNECT_TIMEOUT_SECS: "10"
+    O2_EVAL_OUTBOUND_MAX_RESPONSE_BYTES: "1048576"
+    O2_LLM_PLAYGROUND_RUN_TIMEOUT_MS: "120000"
+    O2_LLM_PLAYGROUND_SNAPSHOT_MAX_PER_ORG: "1000"
+    O2_LLM_PLAYGROUND_SNAPSHOT_TTL_DAYS: "180"
+    O2_LLM_REVIEW_RECONCILE_INTERVAL_SECS: "600"
+  o2ai:
     # IMPORTANT: Must be set to true if O2_AI_ENABLED is "true" above
-    enabled: false # if true then o2-sre-agent will be deployed as part of openobserve (enterprise only)
+    enabled: false # if true then o2ai will be deployed as part of openobserve (enterprise only)
+    podLabels: {}
     config:
-      O2_SRE_HOST: "0.0.0.0"
-      O2_SRE_PORT: "8000"
-      O2_SRE_LOG_LEVEL: "INFO"
+      O2_AI_HOST: "0.0.0.0"
+      O2_AI_PORT: "8000"
+      O2_AI_LOG_LEVEL: "INFO"
       ADK_ENABLE_JSON_SCHEMA_FOR_FUNC_DECL: "true"
       O2_AI_GATEWAY_ENABLED: "false"
-      O2_AI_PROVIDER: "anthropic"    # openai or anthropic or gemini or others
+      O2_AI_PROVIDER: "anthropic" # openai or anthropic or gemini or others
       O2_AI_MODEL: "claude-3-5-sonnet-20241022"
-      O2_AI_GATEWAY_URL: ""  # Optional: AI Gateway URL (e.g., "http://my-gateway:80")
-      O2_AGENT_URL: ""  # Leave empty to use default auto-generated URL
-      O2_TOOL_API_URL: ""  # Leave empty to use default auto-generated URL
+      O2_AI_GATEWAY_URL: "" # Optional: AI Gateway URL (e.g., "http://my-gateway:80")
+      O2_AGENT_URL: "" # Leave empty to use default auto-generated URL
+      O2_TOOL_API_URL: "" # Leave empty to use default auto-generated URL
       # MCP validation settings
       O2_MCP_VALIDATION_ENABLED: "true"
       O2_MCP_VALIDATION_RETRY: "true"
@@ -601,12 +659,23 @@ enterprise:
       O2_MCP_CONTENT_VALIDATION_MODE: "hybrid"
       O2_MCP_RESPONSE_VALIDATION_ENABLED: "true"
     extraEnv: []
+    cliConfig: {}  # Leave empty to use built-in defaults. Override to customize available CLI commands.
+    clusterAccess:
+      enabled: false  # Enable kubectl/cluster access — creates ServiceAccount, ClusterRole, ClusterRoleBinding
+      serviceAccount:
+        annotations: {}
+        # AWS EKS IRSA example:
+        #   eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/ROLE_NAME
+        # GKE Workload Identity example:
+        #   iam.gke.io/gcp-service-account: SA_NAME@PROJECT_ID.iam.gserviceaccount.com
+      rbac:
+        rules: []  # Leave empty to use built-in defaults. Override to restrict or extend permissions.
 
 # Envoy AI Gateway Configuration
 # When enabled, SRE agent routes AI requests through an existing AI Gateway
 # Use this when you have already deployed an AI Gateway in your cluster
 aiGateway:
-  enabled: false  # Set to true to use an existing AI Gateway
+  enabled: false # Set to true to use an existing AI Gateway
   # Name of the AI Gateway service (e.g., "envoy-envoy-gateway-system-ai-gateway-78adb12c")
   gatewayServiceName: "ai-gateway"
   # Namespace where the AI Gateway service exists (empty = same as release namespace)

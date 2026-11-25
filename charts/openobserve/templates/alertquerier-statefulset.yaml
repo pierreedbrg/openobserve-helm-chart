@@ -9,6 +9,10 @@ spec:
   serviceName: "{{ include "openobserve.fullname" . }}-alertquerier"
   replicas: {{ .Values.replicaCount.alertquerier }}
   podManagementPolicy: Parallel
+  {{- with .Values.alertquerier.persistentVolumeClaimRetentionPolicy }}
+  persistentVolumeClaimRetentionPolicy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   updateStrategy:
     type: RollingUpdate
     rollingUpdate:
@@ -25,9 +29,21 @@ spec:
         {{- end }}
         checksum/specific-config: {{ include (print $.Template.BasePath "/alertquerier-configmap.yaml") . | sha256sum }}
         checksum/generic-config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with include "openobserve.secretChecksumAnnotation" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.auth.O2_AI_INTERNAL_SECRET }}
+        checksum/o2-ai-internal-secret: {{ printf "%s-%s" $.Release.Name . | sha256sum }}
+        {{- end }}
+        {{- if and .Values.enterprise.parameters.ZO_MASTER_ENCRYPTION_KEY (not .Values.externalSecret.enabled) }}
+        checksum/master-encryption-key: {{ printf "%s-%s" $.Release.Name .Values.enterprise.parameters.ZO_MASTER_ENCRYPTION_KEY | sha256sum }}
+        {{- end }}
       labels:
         {{- include "openobserve.selectorLabels" . | nindent 8 }}
         role: alertquerier
+        {{- with include "openobserve.podLabels" (list .Values.podLabels .Values.alertquerier.podLabels) }}
+        {{- . | trim | nindent 8 }}
+        {{- end }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
